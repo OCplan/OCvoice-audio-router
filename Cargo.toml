@@ -1,0 +1,29 @@
+[package]
+name = "ocvoice-audio-router"
+version = "0.1.0"
+edition = "2021"
+description = "OCvoice Audio Router — routes translated audio to multi-channel audio interfaces"
+license = "MIT"
+
+[dependencies]
+# Audio device access (cross-platform: CoreAudio on macOS, WASAPI on Windows, ALSA on Linux)
+cpal = "0.15"
+# HTTP server
+axum = { version = "0.7", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors"] }
+# Audio decoding (MP3 → PCM)
+symphonia = { version = "0.5", features = ["mp3"] }
+# HTTP client to fetch audio URLs
+reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
+# JSON serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# System tray (cross-platform)
+tray-item = "0.10"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "z"  # optimize for size

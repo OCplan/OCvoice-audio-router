@@ -1,0 +1,81 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: ocvoice-audio-router-macos-arm64
+            binary: ocvoice-audio-router
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: ocvoice-audio-router-macos-x64
+            binary: ocvoice-audio-router
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: ocvoice-audio-router-windows-x64
+            binary: ocvoice-audio-router.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Rename binary
+        shell: bash
+        run: |
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" \
+             "${{ matrix.artifact }}${{ runner.os == 'Windows' && '.exe' || '' }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: "${{ matrix.artifact }}*"
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Audio Router ${{ github.ref_name }}"
+          body: |
+            ## OCvoice Audio Router
+
+            Download the right version for your system:
+            - **macOS (Apple Silicon / M1+)**: `ocvoice-audio-router-macos-arm64`
+            - **macOS (Intel)**: `ocvoice-audio-router-macos-x64`
+            - **Windows**: `ocvoice-audio-router-windows-x64.exe`
+
+            ### How to use
+            1. Download and run the binary
+            2. Open your OCvoice broadcast page
+            3. Multi-channel devices will appear in the device selector
+          files: artifacts/**/*
