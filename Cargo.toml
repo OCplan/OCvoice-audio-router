@@ -1,9 +1,9 @@
 [package]
 name = "ocvoice-audio-router"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "OCvoice Audio Router — routes translated audio to multi-channel audio interfaces"
-license = "MIT"
+license = "GPL-3.0"
 
 [dependencies]
 # Audio device access (cross-platform: CoreAudio on macOS, WASAPI on Windows, ALSA on Linux)

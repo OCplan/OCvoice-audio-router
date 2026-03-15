@@ -74,6 +74,107 @@ struct AppState {
     audio_tx: mpsc::UnboundedSender<AudioCmd>,
 }
 
+// ── Auto-Start ──────────────────────────────────────────────────────
+
+/// Install auto-start on login (runs once, idempotent)
+fn setup_autostart() {
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("[AutoStart] Could not determine executable path: {e}");
+            return;
+        }
+    };
+    let exe_path = exe.to_string_lossy();
+
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let agents_dir = format!("{home}/Library/LaunchAgents");
+        let plist_path = format!("{agents_dir}/dk.ocplan.audio-router.plist");
+
+        if std::path::Path::new(&plist_path).exists() {
+            println!("  Auto-start: already configured");
+            return;
+        }
+
+        // Ensure LaunchAgents directory exists
+        let _ = std::fs::create_dir_all(&agents_dir);
+
+        let plist = format!(
+r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>dk.ocplan.audio-router</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{exe_path}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>{home}/Library/Logs/ocvoice-audio-router.log</string>
+    <key>StandardErrorPath</key>
+    <string>{home}/Library/Logs/ocvoice-audio-router.log</string>
+</dict>
+</plist>"#
+        );
+
+        match std::fs::write(&plist_path, plist) {
+            Ok(_) => println!("  Auto-start: installed (will start on login)"),
+            Err(e) => eprintln!("  Auto-start: failed to write plist: {e}"),
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+
+        // Check if already registered
+        let check = Command::new("reg")
+            .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "/v", "OCvoiceAudioRouter"])
+            .output();
+
+        if let Ok(output) = check {
+            if output.status.success() {
+                println!("  Auto-start: already configured");
+                return;
+            }
+        }
+
+        let result = Command::new("reg")
+            .args([
+                "add",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                "/v", "OCvoiceAudioRouter",
+                "/t", "REG_SZ",
+                "/d", &exe_path,
+                "/f",
+            ])
+            .output();
+
+        match result {
+            Ok(output) if output.status.success() => {
+                println!("  Auto-start: installed (will start on login)");
+            }
+            Ok(output) => {
+                eprintln!("  Auto-start: registry write failed: {}", String::from_utf8_lossy(&output.stderr));
+            }
+            Err(e) => eprintln!("  Auto-start: failed: {e}"),
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = exe_path;
+        println!("  Auto-start: not supported on this platform");
+    }
+}
+
 // ── Audio Thread ─────────────────────────────────────────────────────
 // cpal::Stream is !Send, so all stream management lives on one thread.
 
@@ -445,6 +546,10 @@ async fn main() {
             println!("  [{i}] {name} ({max_ch}ch)");
         }
     }
+
+    // Set up auto-start on login
+    setup_autostart();
+
     println!("\n  Listening on http://localhost:{port}");
     println!("  Your web app will detect this automatically.\n");
 

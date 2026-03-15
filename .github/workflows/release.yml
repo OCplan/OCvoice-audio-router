@@ -13,15 +13,15 @@ jobs:
         include:
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: ocvoice-audio-router-macos-arm64
+            artifact: OCvoice-Audio-Router-macOS-arm64
             binary: ocvoice-audio-router
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact: ocvoice-audio-router-macos-x64
+            artifact: OCvoice-Audio-Router-macOS-x64
             binary: ocvoice-audio-router
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: ocvoice-audio-router-windows-x64
+            artifact: OCvoice-Audio-Router-Windows
             binary: ocvoice-audio-router.exe
 
     runs-on: ${{ matrix.os }}
@@ -37,17 +37,68 @@ jobs:
       - name: Build release
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary
+      # macOS: create .app bundle → .dmg
+      - name: Create macOS .app and .dmg
+        if: runner.os == 'macOS'
         shell: bash
+        env:
+          ARTIFACT_NAME: ${{ matrix.artifact }}
+          BUILD_TARGET: ${{ matrix.target }}
+          BUILD_BINARY: ${{ matrix.binary }}
+          TAG_NAME: ${{ github.ref_name }}
         run: |
-          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" \
-             "${{ matrix.artifact }}${{ runner.os == 'Windows' && '.exe' || '' }}"
+          APP_NAME="OCvoice Audio Router.app"
+          mkdir -p "${APP_NAME}/Contents/MacOS"
+          mkdir -p "${APP_NAME}/Contents/Resources"
 
-      - name: Upload artifact
+          # Copy binary
+          cp "target/${BUILD_TARGET}/release/${BUILD_BINARY}" \
+             "${APP_NAME}/Contents/MacOS/ocvoice-audio-router"
+          chmod +x "${APP_NAME}/Contents/MacOS/ocvoice-audio-router"
+
+          # Copy Info.plist and update version from tag
+          cp resources/macos/Info.plist "${APP_NAME}/Contents/Info.plist"
+          if [[ "${TAG_NAME}" == v* ]]; then
+            VERSION="${TAG_NAME#v}"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION}" "${APP_NAME}/Contents/Info.plist"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" "${APP_NAME}/Contents/Info.plist"
+          fi
+
+          # Create DMG with Applications symlink (drag-to-install)
+          mkdir -p dmg_contents
+          cp -R "${APP_NAME}" dmg_contents/
+          ln -s /Applications dmg_contents/Applications
+
+          hdiutil create -volname "OCvoice Audio Router" \
+            -srcfolder dmg_contents \
+            -ov -format UDZO \
+            "${ARTIFACT_NAME}.dmg"
+
+      # Windows: just rename the exe
+      - name: Package Windows binary
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ matrix.artifact }}
+          BUILD_TARGET: ${{ matrix.target }}
+          BUILD_BINARY: ${{ matrix.binary }}
+        run: |
+          cp "target/${BUILD_TARGET}/release/${BUILD_BINARY}" \
+             "${ARTIFACT_NAME}.exe"
+
+      - name: Upload artifact (macOS)
+        if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: "${{ matrix.artifact }}*"
+          path: "${{ matrix.artifact }}.dmg"
+
+      - name: Upload artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: "${{ matrix.artifact }}.exe"
 
   release:
     needs: build
@@ -70,12 +121,23 @@ jobs:
             ## OCvoice Audio Router
 
             Download the right version for your system:
-            - **macOS (Apple Silicon / M1+)**: `ocvoice-audio-router-macos-arm64`
-            - **macOS (Intel)**: `ocvoice-audio-router-macos-x64`
-            - **Windows**: `ocvoice-audio-router-windows-x64.exe`
 
-            ### How to use
-            1. Download and run the binary
-            2. Open your OCvoice broadcast page
-            3. Multi-channel devices will appear in the device selector
+            | Platform | File |
+            |---|---|
+            | **macOS (Apple Silicon — M1/M2/M3/M4)** | `OCvoice-Audio-Router-macOS-arm64.dmg` |
+            | **macOS (Intel)** | `OCvoice-Audio-Router-macOS-x64.dmg` |
+            | **Windows** | `OCvoice-Audio-Router-Windows.exe` |
+
+            ### macOS
+            1. Download and open the `.dmg` file
+            2. Drag **OCvoice Audio Router** to the **Applications** folder
+            3. Right-click the app → click **Open** → click **Open** again
+            4. Done — starts automatically on login
+
+            ### Windows
+            1. Download and run the `.exe` file
+            2. Click "More info" → "Run anyway" if SmartScreen blocks it
+            3. Done — starts automatically on login
+
+            The app runs in the background. Your OCvoice broadcast page detects it automatically.
           files: artifacts/**/*

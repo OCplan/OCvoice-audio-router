@@ -18,18 +18,36 @@ OCvoice Web App (browser)
 
 Grab the latest release for your platform from [Releases](https://github.com/OCplan/ocvoice-audio-router/releases):
 
-- **macOS (Apple Silicon / M1+)**: `ocvoice-audio-router-macos-arm64`
-- **macOS (Intel)**: `ocvoice-audio-router-macos-x64`
-- **Windows**: `ocvoice-audio-router-windows-x64.exe`
+| Platform | File |
+|---|---|
+| **macOS (Apple Silicon — M1/M2/M3/M4)** | `OCvoice-Audio-Router-macOS-arm64.dmg` |
+| **macOS (Intel)** | `OCvoice-Audio-Router-macOS-x64.dmg` |
+| **Windows** | `OCvoice-Audio-Router-Windows.exe` |
 
 ## Usage
 
-1. Download and run the binary — it starts a local server on port 9876
-2. Open your OCvoice broadcast page
-3. Multi-channel devices automatically appear in the device selector under "Audio Router"
-4. Assign each language to a different channel pair
+### macOS
 
-The OCvoice web app detects the router automatically. No configuration needed.
+1. Download and open the `.dmg` file
+2. Drag **OCvoice Audio Router** to the **Applications** folder
+3. Right-click the app → click **Open** → click **Open** again in the dialog
+4. Done! The app starts automatically when you log in
+
+> **First time only:** macOS blocks apps that aren't from the App Store. Right-click → Open bypasses this. After the first time, you can open it normally.
+
+### Windows
+
+1. Download the `.exe` file
+2. Double-click to run
+3. If Windows shows a blue "SmartScreen" warning, click **"More info"** → **"Run anyway"**
+4. Done! The app starts automatically when you log in
+
+### What happens next
+
+- The app runs quietly in the background (no window needed)
+- Open your OCvoice broadcast page — multi-channel devices appear automatically in the device selector
+- Assign each language to a different channel pair
+- The app starts on login, so you never need to think about it again
 
 ## When do you need this?
 
@@ -68,7 +86,8 @@ cargo build --release
 - Decodes MP3 via [symphonia](https://github.com/pdeljanov/Symphonia)
 - HTTP server via [axum](https://github.com/tokio-rs/axum)
 - Audio streams managed on a dedicated OS thread (cpal requirement)
-- Release binary is ~3-5MB with no runtime dependencies
+- Auto-starts on login (LaunchAgent on macOS, Registry on Windows)
+- Release is a native `.app` bundle on macOS, standalone `.exe` on Windows
 
 ## License
 
