@@ -1,6 +1,6 @@
 [package]
 name = "ocvoice-audio-router"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "OCvoice Audio Router — routes translated audio to multi-channel audio interfaces"
 license = "GPL-3.0"
@@ -15,12 +15,16 @@ tower-http = { version = "0.5", features = ["cors"] }
 # Audio decoding (MP3 → PCM)
 symphonia = { version = "0.5", features = ["mp3"] }
 # HTTP client to fetch audio URLs
-reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = ["rustls-tls", "json"], default-features = false }
 # JSON serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # System tray (cross-platform)
 tray-item = "0.10"
+# Open URLs in default browser
+open = "5"
+# Semantic version comparison for auto-update check
+semver = "1"
 
 [profile.release]
 strip = true
