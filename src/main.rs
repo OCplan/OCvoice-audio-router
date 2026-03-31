@@ -705,11 +705,17 @@ async fn update_check_loop(tray_tx: std::sync::mpsc::Sender<TrayUpdate>) {
 // ── System Tray ─────────────────────────────────────────────────────
 
 fn run_tray(device_count: usize, tray_rx: std::sync::mpsc::Receiver<TrayUpdate>) {
-    let mut tray = TrayItem::new(
-        "\u{1f50a}", // 🔊
-        tray_item::IconSource::Resource(""),
-    )
-    .expect("Failed to create tray item");
+    #[cfg(target_os = "macos")]
+    let icon = tray_item::IconSource::Data {
+        width: 36,
+        height: 36,
+        data: include_bytes!("../resources/macos/tray-icon.png").to_vec(),
+    };
+    #[cfg(not(target_os = "macos"))]
+    let icon = tray_item::IconSource::Resource("");
+
+    let mut tray = TrayItem::new("OCvoice Audio Router", icon)
+        .expect("Failed to create tray item");
 
     let version = env!("CARGO_PKG_VERSION");
     let _ = tray.add_label(&format!("OCvoice Audio Router v{version}"));

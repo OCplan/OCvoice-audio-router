@@ -28,6 +28,5 @@ semver = "1"
 
 [profile.release]
 strip = true
-lto = true
-codegen-units = 1
-opt-level = "z"  # optimize for size
+lto = "thin"
+opt-level = 2
