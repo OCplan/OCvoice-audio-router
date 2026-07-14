@@ -20,6 +20,8 @@ use tokio::sync::{mpsc, oneshot};
 use tower_http::cors::CorsLayer;
 use tray_item::TrayItem;
 
+mod restream;
+
 // ── Types ────────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -117,6 +119,7 @@ enum AudioCmd {
 #[derive(Clone)]
 struct AppState {
     audio_tx: mpsc::UnboundedSender<AudioCmd>,
+    restream: restream::RestreamSupervisor,
 }
 
 // ── Auto-Start ──────────────────────────────────────────────────────
@@ -315,7 +318,7 @@ fn run_audio_thread(mut rx: mpsc::UnboundedReceiver<AudioCmd>) {
 
                                         // Advance position
                                         let frames_played = frame_count.min(
-                                            (stereo_len - pair.position + 1) / 2,
+                                            (stereo_len - pair.position).div_ceil(2),
                                         );
                                         pair.position += frames_played * 2;
 
@@ -633,14 +636,22 @@ fn decode_mp3_to_samples(data: &[u8]) -> Result<Vec<f32>, String> {
 
 // ── HTTP Server ─────────────────────────────────────────────────────
 
-async fn run_http_server(audio_tx: mpsc::UnboundedSender<AudioCmd>, port: u16) {
-    let state = AppState { audio_tx };
+async fn run_http_server(
+    audio_tx: mpsc::UnboundedSender<AudioCmd>,
+    restream: restream::RestreamSupervisor,
+    port: u16,
+) {
+    let state = AppState { audio_tx, restream };
 
     let app = Router::new()
         .route("/health", get(health))
         .route("/devices", get(list_devices))
         .route("/play", post(play_audio))
         .route("/stop", post(stop_playback))
+        .route("/restream/pair", post(restream::pair))
+        .route("/restream/start", post(restream::start))
+        .route("/restream/stop", post(restream::stop))
+        .route("/restream/status", get(restream::status))
         .layer(
             CorsLayer::new()
                 .allow_origin(tower_http::cors::Any)
@@ -830,7 +841,8 @@ fn main() {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
         rt.block_on(async {
             tokio::spawn(update_check_loop(tray_tx));
-            run_http_server(audio_tx_clone, port).await;
+            let restream = restream::RestreamSupervisor::load();
+            run_http_server(audio_tx_clone, restream, port).await;
         });
     });
 
