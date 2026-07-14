@@ -1,6 +1,8 @@
 use axum::{
-    extract::State,
-    http::StatusCode,
+    extract::{Request, State},
+    http::{uri::Authority, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -636,6 +638,50 @@ fn decode_mp3_to_samples(data: &[u8]) -> Result<Vec<f32>, String> {
 
 // ── HTTP Server ─────────────────────────────────────────────────────
 
+fn is_local_authority(value: &str) -> bool {
+    value
+        .parse::<Authority>()
+        .is_ok_and(|authority| !authority.as_str().contains('@') && is_local_host(authority.host()))
+}
+
+fn is_local_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost") || matches!(host, "127.0.0.1" | "[::1]")
+}
+
+fn is_local_origin(value: &str) -> bool {
+    value.parse::<axum::http::Uri>().is_ok_and(|uri| {
+        matches!(uri.scheme_str(), Some("http" | "https"))
+            && uri.authority().is_some_and(|authority| {
+                !authority.as_str().contains('@') && is_local_host(authority.host())
+            })
+            && uri.path() == "/"
+            && uri.query().is_none()
+    })
+}
+
+fn restream_request_origin_guard_allows(host: Option<&str>, origin: Option<&str>) -> bool {
+    host.is_some_and(is_local_authority) && origin.is_none_or(is_local_origin)
+}
+
+/// Restream control is intentionally unauthenticated for the native localhost client.
+/// Require a local Host and reject browser requests originating outside localhost.
+async fn restream_origin_guard(request: Request, next: Next) -> Response {
+    let host = request
+        .headers()
+        .get(axum::http::header::HOST)
+        .map(|value| value.to_str().unwrap_or(""));
+    let origin = request
+        .headers()
+        .get(axum::http::header::ORIGIN)
+        .map(|value| value.to_str().unwrap_or(""));
+
+    if !restream_request_origin_guard_allows(host, origin) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    next.run(request).await
+}
+
 async fn run_http_server(
     audio_tx: mpsc::UnboundedSender<AudioCmd>,
     restream: restream::RestreamSupervisor,
@@ -643,20 +689,30 @@ async fn run_http_server(
 ) {
     let state = AppState { audio_tx, restream };
 
-    let app = Router::new()
+    let legacy_routes = Router::new()
         .route("/health", get(health))
         .route("/devices", get(list_devices))
         .route("/play", post(play_audio))
         .route("/stop", post(stop_playback))
-        .route("/restream/pair", post(restream::pair))
-        .route("/restream/start", post(restream::start))
-        .route("/restream/stop", post(restream::stop))
-        .route("/restream/status", get(restream::status))
         .layer(
             CorsLayer::new()
                 .allow_origin(tower_http::cors::Any)
                 .allow_methods(tower_http::cors::Any)
                 .allow_headers(tower_http::cors::Any),
+        );
+
+    let restream_control_routes = Router::new()
+        .route("/pair", post(restream::pair))
+        .route("/start", post(restream::start))
+        .route("/stop", post(restream::stop))
+        .route_layer(middleware::from_fn(restream_origin_guard));
+
+    let app = legacy_routes
+        .nest(
+            "/restream",
+            Router::new()
+                .merge(restream_control_routes)
+                .route("/status", get(restream::status)),
         )
         .with_state(state);
 
@@ -851,4 +907,38 @@ fn main() {
 
     // Main thread: run tray event loop (blocks forever)
     run_tray(device_count, tray_rx);
+}
+
+#[cfg(test)]
+mod origin_guard_tests {
+    use super::restream_request_origin_guard_allows;
+
+    #[test]
+    fn origin_guard_allows_native_and_local_origins() {
+        assert!(restream_request_origin_guard_allows(
+            Some("localhost:48721"),
+            None
+        ));
+        assert!(restream_request_origin_guard_allows(
+            Some("127.0.0.1:48721"),
+            Some("http://127.0.0.1:3000")
+        ));
+        assert!(restream_request_origin_guard_allows(
+            Some("[::1]:48721"),
+            Some("https://[::1]:3000")
+        ));
+    }
+
+    #[test]
+    fn origin_guard_rejects_remote_origin_and_non_local_host() {
+        assert!(!restream_request_origin_guard_allows(
+            Some("localhost:48721"),
+            Some("https://attacker.example")
+        ));
+        assert!(!restream_request_origin_guard_allows(
+            Some("router.attacker.example:48721"),
+            None
+        ));
+        assert!(!restream_request_origin_guard_allows(None, None));
+    }
 }

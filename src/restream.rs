@@ -341,11 +341,10 @@ impl RestreamSupervisor {
         let mut command = Command::new(&engine_path);
         command
             .kill_on_drop(true)
+            .env("RESTREAM_DEVICE_TOKEN", &token)
             .arg("run")
             .arg("--convex")
             .arg(convex_url)
-            .arg("--token")
-            .arg(&token)
             .arg("--port")
             .arg(rtmp_port.to_string())
             .stdout(std::process::Stdio::piped())
@@ -814,7 +813,7 @@ mod tests {
         let pid_path = test_dir.join("engine.pid");
         fs::write(
             &engine_path,
-            "#!/bin/sh\nif [ \"$1\" = \"run\" ]; then\n  echo $$ > \"$STUB_PID_FILE\"\n  echo 'stub engine running'\n  trap 'exit 0' TERM INT\n  while :; do sleep 1; done\nfi\nexit 2\n",
+            "#!/bin/sh\nif [ \"$1\" = \"run\" ]; then\n  case \" $* \" in *\" --token \"*) exit 3 ;; esac\n  [ \"$RESTREAM_DEVICE_TOKEN\" = \"test-device-token-secret\" ] || exit 4\n  echo $$ > \"$STUB_PID_FILE\"\n  echo 'stub engine running'\n  trap 'exit 0' TERM INT\n  while :; do sleep 1; done\nfi\nexit 2\n",
         )
         .unwrap();
         fs::set_permissions(&engine_path, fs::Permissions::from_mode(0o700)).unwrap();

@@ -7,6 +7,7 @@ ENGINE_BINARY="${ENGINE_BINARY:-}"
 FFMPEG_BINARY="${FFMPEG_BINARY:-}"
 INFO_PLIST="${INFO_PLIST:-resources/macos/Info.plist}"
 ENTITLEMENTS="${ENTITLEMENTS:-resources/macos/entitlements.plist}"
+ENGINE_ENTITLEMENTS="${ENGINE_ENTITLEMENTS:-resources/macos/engine-entitlements.plist}"
 APP_NAME="${APP_NAME:-OCvoice Audio Router.app}"
 APP_VERSION="${APP_VERSION:-}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
@@ -31,6 +32,7 @@ require_file ENGINE_BINARY
 require_file FFMPEG_BINARY
 require_file INFO_PLIST
 require_file ENTITLEMENTS
+require_file ENGINE_ENTITLEMENTS
 
 if [[ "${APP_NAME}" != *.app ]]; then
   echo "error: APP_NAME must end in .app: ${APP_NAME}" >&2
@@ -71,28 +73,50 @@ if [[ -n "${SIGNING_IDENTITY}" ]]; then
 fi
 
 sign() {
+  local target="$1"
+  local entitlements="$2"
+
   if [[ "${signing_identity}" == "-" ]]; then
     codesign --force --options runtime \
-      --entitlements "${ENTITLEMENTS}" \
+      --entitlements "${entitlements}" \
       --sign "${signing_identity}" \
-      "$1"
+      "${target}"
   else
     codesign --force --options runtime \
-      --entitlements "${ENTITLEMENTS}" \
+      --entitlements "${entitlements}" \
       --sign "${signing_identity}" \
       --timestamp \
-      "$1"
+      "${target}"
   fi
 }
 
 # Sign nested code before its containing bundle (inside-out).
-sign "${APP_NAME}/Contents/Resources/ffmpeg"
-sign "${APP_NAME}/Contents/Resources/ocvoice-restream-engine"
-sign "${APP_NAME}/Contents/MacOS/ocvoice-audio-router"
-sign "${APP_NAME}"
+sign "${APP_NAME}/Contents/Resources/ffmpeg" "${ENTITLEMENTS}"
+sign "${APP_NAME}/Contents/Resources/ocvoice-restream-engine" "${ENGINE_ENTITLEMENTS}"
+sign "${APP_NAME}/Contents/MacOS/ocvoice-audio-router" "${ENTITLEMENTS}"
+sign "${APP_NAME}" "${ENTITLEMENTS}"
 
 codesign --verify --deep --strict --verbose=2 "${APP_NAME}"
-codesign -dv --entitlements - "${APP_NAME}/Contents/Resources/ocvoice-restream-engine"
+
+entitlements_dump_dir=$(mktemp -d)
+trap 'rm -rf "${entitlements_dump_dir}"' EXIT
+codesign -d --entitlements :- \
+  "${APP_NAME}/Contents/Resources/ocvoice-restream-engine" \
+  > "${entitlements_dump_dir}/engine.plist"
+codesign -d --entitlements :- "${APP_NAME}" > "${entitlements_dump_dir}/app.plist"
+
+for jit_entitlement in \
+  com.apple.security.cs.allow-jit \
+  com.apple.security.cs.allow-unsigned-executable-memory; do
+  if ! grep -q "<key>${jit_entitlement}</key>" "${entitlements_dump_dir}/engine.plist"; then
+    echo "error: engine is missing ${jit_entitlement}" >&2
+    exit 1
+  fi
+  if grep -q "<key>${jit_entitlement}</key>" "${entitlements_dump_dir}/app.plist"; then
+    echo "error: app unexpectedly carries ${jit_entitlement}" >&2
+    exit 1
+  fi
+done
 
 app_parent=$(cd "$(dirname "${APP_NAME}")" && pwd -P)
 echo "bundle ready at ${app_parent}/$(basename "${APP_NAME}")"
