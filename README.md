@@ -22,7 +22,7 @@ Grab the latest release for your platform from [Releases](https://github.com/OCp
 |---|---|
 | **macOS (Apple Silicon — M1/M2/M3/M4)** | `OCvoice-Audio-Router-macOS-arm64.dmg` |
 | **macOS (Intel)** | `OCvoice-Audio-Router-macOS-x64.dmg` |
-| **Windows** | `OCvoice-Audio-Router-Windows.exe` |
+| **Windows** | `OCvoice-Audio-Router-Windows.zip` |
 
 ## Usage
 
@@ -37,7 +37,7 @@ Grab the latest release for your platform from [Releases](https://github.com/OCp
 
 ### Windows
 
-1. Download the `.exe` file
+1. Download and extract the `.zip` file
 2. Double-click to run
 3. If Windows shows a blue "SmartScreen" warning, click **"More info"** → **"Run anyway"**
 4. Done! The app starts automatically when you log in

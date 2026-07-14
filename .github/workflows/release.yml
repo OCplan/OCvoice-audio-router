@@ -5,6 +5,15 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      engine_version:
+        description: "OCvoice engine release tag, or latest"
+        required: false
+        default: "latest"
+        type: string
+
+env:
+  ENGINE_VERSION: ${{ inputs.engine_version || vars.ENGINE_VERSION || 'latest' }}
 
 jobs:
   build:
@@ -42,6 +51,69 @@ jobs:
       - name: Build release
         run: cargo build --release --target ${{ matrix.target }}
 
+      - name: Fetch macOS engine and ffmpeg
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          GH_TOKEN: ${{ secrets.OCVOICE_RELEASE_TOKEN }}
+          FFMPEG_URL_ARM64: ${{ vars.FFMPEG_URL_ARM64 || 'https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-arm64.gz' }}
+          FFMPEG_URL_X64: ${{ vars.FFMPEG_URL_X64 || 'https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-x64.gz' }}
+          FFMPEG_SHA256_ARM64: ${{ vars.FFMPEG_SHA256_ARM64 }}
+          FFMPEG_SHA256_X64: ${{ vars.FFMPEG_SHA256_X64 }}
+        run: |
+          set -euo pipefail
+          DEPS_DIR="${PWD}/.release-sidecars"
+          rm -rf "${DEPS_DIR}"
+          mkdir -p "${DEPS_DIR}"
+
+          case "${BUILD_TARGET}" in
+            aarch64-apple-darwin)
+              ENGINE_ASSET="ocvoice-restream-engine-darwin-arm64"
+              FFMPEG_URL="${FFMPEG_URL_ARM64}"
+              FFMPEG_SHA256="${FFMPEG_SHA256_ARM64}"
+              ;;
+            x86_64-apple-darwin)
+              ENGINE_ASSET="ocvoice-restream-engine-darwin-x64"
+              FFMPEG_URL="${FFMPEG_URL_X64}"
+              FFMPEG_SHA256="${FFMPEG_SHA256_X64}"
+              ;;
+            *)
+              echo "Unsupported macOS build target: ${BUILD_TARGET}" >&2
+              exit 1
+              ;;
+          esac
+
+          if [[ "${ENGINE_VERSION}" == "latest" ]]; then
+            gh release download --repo OCplan/OCvoice \
+              --pattern "${ENGINE_ASSET}" --dir "${DEPS_DIR}"
+          else
+            gh release download "${ENGINE_VERSION}" --repo OCplan/OCvoice \
+              --pattern "${ENGINE_ASSET}" --dir "${DEPS_DIR}"
+          fi
+          mv "${DEPS_DIR}/${ENGINE_ASSET}" "${DEPS_DIR}/ocvoice-restream-engine"
+
+          # NOTE: the eugeneware default is --enable-nonfree and will be REJECTED by
+          # the gate below — set repo vars FFMPEG_URL_ARM64/X64 to a GPL (non-nonfree)
+          # TLS static build before a real release (GPL-3.0 app → GPL ffmpeg is fine).
+          curl --fail --location --retry 3 "${FFMPEG_URL}" --output "${DEPS_DIR}/ffmpeg.gz"
+          if [[ -n "${FFMPEG_SHA256}" ]]; then
+            printf '%s  %s\n' "${FFMPEG_SHA256}" "${DEPS_DIR}/ffmpeg.gz" | shasum -a 256 --check
+          fi
+          gzip -dc "${DEPS_DIR}/ffmpeg.gz" > "${DEPS_DIR}/ffmpeg"
+          chmod +x "${DEPS_DIR}/ocvoice-restream-engine" "${DEPS_DIR}/ffmpeg"
+
+          # Fail-closed distribution + capability gate. A --enable-nonfree ffmpeg
+          # is NOT redistributable (bundling it would violate its license); the
+          # engine also needs rtmps/TLS to push to YouTube. Point FFMPEG_URL_* at
+          # a GPL (non-nonfree) static build if this fails.
+          if "${DEPS_DIR}/ffmpeg" -hide_banner -version 2>/dev/null | grep -q -- "--enable-nonfree"; then
+            echo "::error::bundled ffmpeg is --enable-nonfree (not redistributable); set FFMPEG_URL_ARM64/X64 to a GPL build"; exit 1
+          fi
+          if ! "${DEPS_DIR}/ffmpeg" -hide_banner -protocols 2>/dev/null | grep -qi "rtmps"; then
+            echo "::error::bundled ffmpeg lacks rtmps/TLS; the YouTube push would fail"; exit 1
+          fi
+
       # macOS: create .app bundle, sign, notarize, create .dmg
       - name: Create macOS .app and .dmg
         if: runner.os == 'macOS'
@@ -58,20 +130,9 @@ jobs:
           APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
         run: |
           APP_NAME="OCvoice Audio Router.app"
-          mkdir -p "${APP_NAME}/Contents/MacOS"
-          mkdir -p "${APP_NAME}/Contents/Resources"
-
-          # Copy binary
-          cp "target/${BUILD_TARGET}/release/${BUILD_BINARY}" \
-             "${APP_NAME}/Contents/MacOS/ocvoice-audio-router"
-          chmod +x "${APP_NAME}/Contents/MacOS/ocvoice-audio-router"
-
-          # Copy Info.plist and update version from tag
-          cp resources/macos/Info.plist "${APP_NAME}/Contents/Info.plist"
+          VERSION=""
           if [[ "${TAG_NAME}" == v* ]]; then
             VERSION="${TAG_NAME#v}"
-            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION}" "${APP_NAME}/Contents/Info.plist"
-            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" "${APP_NAME}/Contents/Info.plist"
           fi
 
           # --- Code Signing ---
@@ -101,21 +162,13 @@ jobs:
             IDENTITY=$(security find-identity -v -p codesigning "${KEYCHAIN_PATH}" | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
             echo "Signing with identity: ${IDENTITY}"
 
-            # Sign the binary and app bundle
-            codesign --force --options runtime \
-              --entitlements resources/macos/entitlements.plist \
-              --sign "${IDENTITY}" \
-              --timestamp \
-              "${APP_NAME}/Contents/MacOS/ocvoice-audio-router"
-
-            codesign --force --options runtime \
-              --entitlements resources/macos/entitlements.plist \
-              --sign "${IDENTITY}" \
-              --timestamp \
-              "${APP_NAME}"
-
-            echo "Code signing complete. Verifying..."
-            codesign --verify --deep --strict --verbose=2 "${APP_NAME}"
+            SIGNING_IDENTITY="${IDENTITY}" \
+              ENGINE_BINARY="${PWD}/.release-sidecars/ocvoice-restream-engine" \
+              FFMPEG_BINARY="${PWD}/.release-sidecars/ffmpeg" \
+              ROUTER_BINARY="target/${BUILD_TARGET}/release/${BUILD_BINARY}" \
+              APP_NAME="${APP_NAME}" \
+              APP_VERSION="${VERSION}" \
+              bash scripts/bundle-macos.sh
 
             # --- Create DMG ---
             mkdir -p dmg_contents
@@ -153,7 +206,14 @@ jobs:
             # Clean up keychain
             security delete-keychain "${KEYCHAIN_PATH}"
           else
-            echo "No signing certificate found, creating unsigned DMG..."
+            echo "No signing certificate found, creating ad-hoc signed app and unsigned DMG..."
+            ENGINE_BINARY="${PWD}/.release-sidecars/ocvoice-restream-engine" \
+              FFMPEG_BINARY="${PWD}/.release-sidecars/ffmpeg" \
+              ROUTER_BINARY="target/${BUILD_TARGET}/release/${BUILD_BINARY}" \
+              APP_NAME="${APP_NAME}" \
+              APP_VERSION="${VERSION}" \
+              bash scripts/bundle-macos.sh
+
             mkdir -p dmg_contents
             cp -R "${APP_NAME}" dmg_contents/
             ln -s /Applications dmg_contents/Applications
@@ -164,8 +224,49 @@ jobs:
               "${ARTIFACT_NAME}.dmg"
           fi
 
-      # Windows: just rename the exe
-      - name: Package Windows binary
+      - name: Fetch Windows engine and ffmpeg
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.OCVOICE_RELEASE_TOKEN }}
+          FFMPEG_URL_WIN: ${{ vars.FFMPEG_URL_WIN || 'https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-win32-x64.gz' }}
+          FFMPEG_SHA256_WIN: ${{ vars.FFMPEG_SHA256_WIN }}
+        run: |
+          set -euo pipefail
+          DEPS_DIR="${PWD}/.release-sidecars"
+          ENGINE_ASSET="ocvoice-restream-engine-windows-x64.exe"
+          rm -rf "${DEPS_DIR}"
+          mkdir -p "${DEPS_DIR}"
+
+          if [[ "${ENGINE_VERSION}" == "latest" ]]; then
+            gh release download --repo OCplan/OCvoice \
+              --pattern "${ENGINE_ASSET}" --dir "${DEPS_DIR}"
+          else
+            gh release download "${ENGINE_VERSION}" --repo OCplan/OCvoice \
+              --pattern "${ENGINE_ASSET}" --dir "${DEPS_DIR}"
+          fi
+          mv "${DEPS_DIR}/${ENGINE_ASSET}" "${DEPS_DIR}/ocvoice-restream-engine.exe"
+
+          # NOTE: the eugeneware default is --enable-nonfree and will be REJECTED by
+          # the gate below — set repo var FFMPEG_URL_WIN to a GPL (non-nonfree) TLS
+          # static build before a real release.
+          curl --fail --location --retry 3 "${FFMPEG_URL_WIN}" --output "${DEPS_DIR}/ffmpeg.gz"
+          if [[ -n "${FFMPEG_SHA256_WIN}" ]]; then
+            printf '%s  %s\n' "${FFMPEG_SHA256_WIN}" "${DEPS_DIR}/ffmpeg.gz" | sha256sum --check
+          fi
+          gzip -dc "${DEPS_DIR}/ffmpeg.gz" > "${DEPS_DIR}/ffmpeg.exe"
+
+          # Fail-closed distribution + capability gate (see the macOS step):
+          # reject a non-redistributable --enable-nonfree build, require rtmps/TLS.
+          if "${DEPS_DIR}/ffmpeg.exe" -hide_banner -version 2>/dev/null | grep -q -- "--enable-nonfree"; then
+            echo "::error::bundled ffmpeg is --enable-nonfree (not redistributable); set FFMPEG_URL_WIN to a GPL build"; exit 1
+          fi
+          if ! "${DEPS_DIR}/ffmpeg.exe" -hide_banner -protocols 2>/dev/null | grep -qi "rtmps"; then
+            echo "::error::bundled ffmpeg lacks rtmps/TLS; the YouTube push would fail"; exit 1
+          fi
+
+      # Windows: bundle the router and its sidecars in one zip.
+      - name: Package Windows binaries
         if: runner.os == 'Windows'
         shell: bash
         env:
@@ -173,8 +274,12 @@ jobs:
           BUILD_TARGET: ${{ matrix.target }}
           BUILD_BINARY: ${{ matrix.binary }}
         run: |
-          cp "target/${BUILD_TARGET}/release/${BUILD_BINARY}" \
-             "${ARTIFACT_NAME}.exe"
+          mkdir -p "${ARTIFACT_NAME}"
+          cp "target/${BUILD_TARGET}/release/${BUILD_BINARY}" "${ARTIFACT_NAME}/${BUILD_BINARY}"
+          cp ".release-sidecars/ocvoice-restream-engine.exe" "${ARTIFACT_NAME}/ocvoice-restream-engine.exe"
+          cp ".release-sidecars/ffmpeg.exe" "${ARTIFACT_NAME}/ffmpeg.exe"
+          powershell.exe -NoProfile -Command \
+            "Compress-Archive -Path '${ARTIFACT_NAME}' -DestinationPath '${ARTIFACT_NAME}.zip' -Force"
 
       - name: Upload artifact (macOS)
         if: runner.os == 'macOS'
@@ -188,7 +293,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: "${{ matrix.artifact }}.exe"
+          path: "${{ matrix.artifact }}.zip"
 
   release:
     needs: build
@@ -216,7 +321,7 @@ jobs:
             |---|---|
             | **macOS (Apple Silicon — M1/M2/M3/M4)** | `OCvoice-Audio-Router-macOS-arm64.dmg` |
             | **macOS (Intel)** | `OCvoice-Audio-Router-macOS-x64.dmg` |
-            | **Windows** | `OCvoice-Audio-Router-Windows.exe` |
+            | **Windows** | `OCvoice-Audio-Router-Windows.zip` |
 
             ### macOS
             1. Download and open the `.dmg` file
@@ -224,9 +329,10 @@ jobs:
             3. Double-click to launch — the app runs in the background via the menu bar
 
             ### Windows
-            1. Download and run the `.exe` file
-            2. Click "More info" → "Run anyway" if SmartScreen blocks it
-            3. Done — starts automatically on login
+            1. Download and extract the `.zip` file
+            2. Run `ocvoice-audio-router.exe` inside the extracted folder
+            3. Click "More info" → "Run anyway" if SmartScreen blocks it
+            4. Done — starts automatically on login
 
             The app runs in the background. Your OCvoice broadcast page detects it automatically.
           files: artifacts/**/*
