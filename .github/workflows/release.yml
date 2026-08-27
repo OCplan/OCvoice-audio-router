@@ -5,15 +5,26 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      engine_version:
-        description: "OCvoice engine release tag, or latest"
-        required: false
-        default: "latest"
-        type: string
 
 env:
-  ENGINE_VERSION: ${{ inputs.engine_version || vars.ENGINE_VERSION || 'latest' }}
+  # The engine tag and the three digests below are ONE unit: bumping the engine
+  # means changing the tag and all three ENGINE_SHA256_* values in the same commit.
+  #
+  # Pinned, not floating, for two reasons. (1) These assets live in OCplan/OCvoice,
+  # the main product repo — "latest" there follows whatever release was cut most
+  # recently, so the first OCvoice APP release moves it to a release carrying no
+  # engine assets at all and every build here breaks on an empty --pattern match.
+  # (2) The engine is nested-signed into the shipped .app with our Developer ID:
+  # whatever bytes land here go out as ours, so the build must state up front
+  # exactly which bytes it is willing to sign.
+  #
+  # There is deliberately no repo-var or dispatch-input override: an override
+  # would change the signed payload without changing this file, and would
+  # invalidate the digests below with no diff to review.
+  ENGINE_VERSION: restream-engine-v0.1.0
+  ENGINE_SHA256_DARWIN_ARM64: 8dbbaec4f6aef3943b5d25591b411337062863c65f5653938036125b412a965f
+  ENGINE_SHA256_DARWIN_X64: 02fdfa282c14eb4f8c50badc18c51fcea86103fe94ef4ae1e2e50f3c293529d4
+  ENGINE_SHA256_WINDOWS_X64: a4bfa3c02f103d5cfbbd96821fb76dd167d3ce50620549af520cb377e702a381
 
 jobs:
   build:
@@ -70,11 +81,13 @@ jobs:
           case "${BUILD_TARGET}" in
             aarch64-apple-darwin)
               ENGINE_ASSET="ocvoice-restream-engine-darwin-arm64"
+              ENGINE_SHA256="${ENGINE_SHA256_DARWIN_ARM64}"
               FFMPEG_URL="${FFMPEG_URL_ARM64}"
               FFMPEG_SHA256="${FFMPEG_SHA256_ARM64}"
               ;;
             x86_64-apple-darwin)
               ENGINE_ASSET="ocvoice-restream-engine-darwin-x64"
+              ENGINE_SHA256="${ENGINE_SHA256_DARWIN_X64}"
               FFMPEG_URL="${FFMPEG_URL_X64}"
               FFMPEG_SHA256="${FFMPEG_SHA256_X64}"
               ;;
@@ -84,14 +97,16 @@ jobs:
               ;;
           esac
 
-          if [[ "${ENGINE_VERSION}" == "latest" ]]; then
-            gh release download --repo OCplan/OCvoice \
-              --pattern "${ENGINE_ASSET}" --dir "${DEPS_DIR}"
-          else
-            gh release download "${ENGINE_VERSION}" --repo OCplan/OCvoice \
-              --pattern "${ENGINE_ASSET}" --dir "${DEPS_DIR}"
-          fi
+          gh release download "${ENGINE_VERSION}" --repo OCplan/OCvoice \
+            --pattern "${ENGINE_ASSET}" --dir "${DEPS_DIR}"
           mv "${DEPS_DIR}/${ENGINE_ASSET}" "${DEPS_DIR}/ocvoice-restream-engine"
+
+          # Fail-closed integrity gate. This binary is nested-signed into the .app
+          # with our Developer ID, so an unverified download would be redistributed
+          # under our signature. Unlike the ffmpeg check below this one is NOT
+          # conditional: an empty or missing digest must break the build, never
+          # silently skip the check on the one artifact we vouch for.
+          printf '%s  %s\n' "${ENGINE_SHA256}" "${DEPS_DIR}/ocvoice-restream-engine" | shasum -a 256 --check
 
           # NOTE: the eugeneware default is --enable-nonfree and will be REJECTED by
           # the gate below — set repo vars FFMPEG_URL_ARM64/X64 to a GPL (non-nonfree)
@@ -238,14 +253,14 @@ jobs:
           rm -rf "${DEPS_DIR}"
           mkdir -p "${DEPS_DIR}"
 
-          if [[ "${ENGINE_VERSION}" == "latest" ]]; then
-            gh release download --repo OCplan/OCvoice \
-              --pattern "${ENGINE_ASSET}" --dir "${DEPS_DIR}"
-          else
-            gh release download "${ENGINE_VERSION}" --repo OCplan/OCvoice \
-              --pattern "${ENGINE_ASSET}" --dir "${DEPS_DIR}"
-          fi
+          gh release download "${ENGINE_VERSION}" --repo OCplan/OCvoice \
+            --pattern "${ENGINE_ASSET}" --dir "${DEPS_DIR}"
           mv "${DEPS_DIR}/${ENGINE_ASSET}" "${DEPS_DIR}/ocvoice-restream-engine.exe"
+
+          # Fail-closed integrity gate (see the macOS step): the engine ships inside
+          # the artifact we publish, so an unverified download would be distributed
+          # as ours. Unconditional by design.
+          printf '%s  %s\n' "${ENGINE_SHA256_WINDOWS_X64}" "${DEPS_DIR}/ocvoice-restream-engine.exe" | sha256sum --check
 
           # NOTE: the eugeneware default is --enable-nonfree and will be REJECTED by
           # the gate below — set repo var FFMPEG_URL_WIN to a GPL (non-nonfree) TLS
