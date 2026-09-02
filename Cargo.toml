@@ -1,6 +1,6 @@
 [package]
 name = "ocvoice-audio-router"
-version = "0.3.0"
+version = "0.3.2"
 edition = "2021"
 description = "OCvoice Audio Router — routes translated audio to multi-channel audio interfaces"
 license = "GPL-3.0"

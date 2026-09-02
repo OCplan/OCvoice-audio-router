@@ -27,7 +27,20 @@ env:
   ENGINE_SHA256_WINDOWS_X64: a4bfa3c02f103d5cfbbd96821fb76dd167d3ce50620549af520cb377e702a381
 
 jobs:
+  # Refuse to build anything whose version numbers disagree, before the matrix
+  # spends a signed, notarized build on it. `release` depends on this job too,
+  # so dropping it from `build` alone cannot re-open the hole. The check lives
+  # in a script rather than inline here so it can be run — and re-verified after
+  # it is edited — without pushing a tag to a public repo.
+  version-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag, Cargo.toml and Info.plist agree
+        run: scripts/check-version-tag.sh
+
   build:
+    needs: version-gate
     strategy:
       matrix:
         include:
@@ -61,6 +74,28 @@ jobs:
 
       - name: Build release
         run: cargo build --release --target ${{ matrix.target }}
+
+      # The repo's tests must actually run: a test CI never executes is
+      # documentation, not a gate. --release reuses what the step above just
+      # built, so this costs the test-harness compile and nothing more, and it
+      # runs before the sidecars, the signature and the notarization.
+      #
+      # x86_64-apple-darwin is excluded because that slice is cross-compiled on
+      # an arm64 runner and cannot execute its own test binaries; the same tests
+      # run natively in the arm64 slice. The supervisor test is
+      # #[cfg(all(test, unix))], so it compiles out on Windows rather than
+      # failing it.
+      - name: Run tests
+        if: matrix.target != 'x86_64-apple-darwin'
+        run: cargo test --release --target ${{ matrix.target }}
+
+      # -D warnings, because a clippy that only warns gates nothing. Confined to
+      # the arm64 macOS slice: that is the configuration it has been shown clean
+      # on. The Windows-only cfg paths have never been linted, so widening this
+      # belongs in a change that first shows it green there.
+      - name: Clippy
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: cargo clippy --all-targets --target ${{ matrix.target }} -- -D warnings
 
       - name: Fetch macOS engine and ffmpeg
         if: runner.os == 'macOS'
@@ -311,7 +346,7 @@ jobs:
           path: "${{ matrix.artifact }}.zip"
 
   release:
-    needs: build
+    needs: [version-gate, build]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
