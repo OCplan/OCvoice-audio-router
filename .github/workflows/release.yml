@@ -72,6 +72,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+          cache-targets: ${{ runner.os != 'macOS' }}
 
       - name: Build release
         run: cargo build --release --target ${{ matrix.target }}
@@ -97,6 +98,22 @@ jobs:
       - name: Clippy
         if: matrix.target == 'aarch64-apple-darwin'
         run: cargo clippy --all-targets --target ${{ matrix.target }} -- -D warnings
+
+      # DMG creation duplicates the signed bundle and needs space beyond the
+      # final image. Keep the executable, then discard compiler intermediates.
+      - name: Stage macOS executable and free build space
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          BUILD_BINARY: ${{ matrix.binary }}
+        run: |
+          set -euo pipefail
+          mkdir -p .release-router
+          cp "target/${BUILD_TARGET}/release/${BUILD_BINARY}" ".release-router/${BUILD_BINARY}"
+          test -x ".release-router/${BUILD_BINARY}"
+          rm -rf target
+          df -h .
 
       - name: Fetch macOS engine and ffmpeg
         if: runner.os == 'macOS'
@@ -216,7 +233,7 @@ jobs:
             SIGNING_IDENTITY="${IDENTITY}" \
               ENGINE_BINARY="${PWD}/.release-sidecars/ocvoice-restream-engine" \
               FFMPEG_BINARY="${PWD}/.release-sidecars/ffmpeg" \
-              ROUTER_BINARY="target/${BUILD_TARGET}/release/${BUILD_BINARY}" \
+              ROUTER_BINARY="${PWD}/.release-router/${BUILD_BINARY}" \
               APP_NAME="${APP_NAME}" \
               APP_VERSION="${VERSION}" \
               bash scripts/bundle-macos.sh
@@ -262,7 +279,7 @@ jobs:
             echo "No signing certificate found, creating ad-hoc signed app and unsigned DMG..."
             ENGINE_BINARY="${PWD}/.release-sidecars/ocvoice-restream-engine" \
               FFMPEG_BINARY="${PWD}/.release-sidecars/ffmpeg" \
-              ROUTER_BINARY="target/${BUILD_TARGET}/release/${BUILD_BINARY}" \
+              ROUTER_BINARY="${PWD}/.release-router/${BUILD_BINARY}" \
               APP_NAME="${APP_NAME}" \
               APP_VERSION="${VERSION}" \
               bash scripts/bundle-macos.sh
