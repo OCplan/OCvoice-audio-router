@@ -6,26 +6,22 @@ audio to your YouTube broadcasts.
 
 ## Download
 
-**YouTube setup is implemented in source version 0.4.0 but is not released yet.**
-The macOS release is waiting for the developer account's Apple agreement to be
-renewed before notarization can complete. Do not use an older app for the
-YouTube setup described below.
+Download [version 0.4.0](https://github.com/OCplan/OCvoice-audio-router/releases/tag/v0.4.0)
+on the computer that sends your video.
 
-The current [v0.3.2 release](https://github.com/OCplan/OCvoice-audio-router/releases/tag/v0.3.2)
-supports multi-channel audio only.
-
-The complete 0.4.0 release will contain these files:
-
-| Computer | Planned file |
+| Computer | Download |
 |---|---|
-| Mac with Apple silicon (M-series) | `OCvoice-Audio-Router-macOS-arm64.dmg` |
-| Mac with Intel processor | `OCvoice-Audio-Router-macOS-x64.dmg` |
-| Windows (64-bit) | `OCvoice-Audio-Router-Windows.zip` |
+| Mac with Apple silicon (M-series) | [Mac Apple silicon](https://github.com/OCplan/OCvoice-audio-router/releases/download/v0.4.0/OCvoice-Audio-Router-macOS-arm64.dmg) |
+| Mac with Intel processor | [Mac Intel](https://github.com/OCplan/OCvoice-audio-router/releases/download/v0.4.0/OCvoice-Audio-Router-macOS-x64.dmg) |
+| Windows (64-bit) | [Windows ZIP](https://github.com/OCplan/OCvoice-audio-router/releases/download/v0.4.0/OCvoice-Audio-Router-Windows.zip) |
 
-For the complete release, open the Mac DMG, drag **OCvoice Audio Router** to
-Applications, and open it. On Windows, extract the entire ZIP and open
-`ocvoice-audio-router.exe`; keep all three files together. The Windows program
-is not Authenticode-signed. macOS publication requires signing and notarization.
+On a Mac, open **Apple menu → About This Mac** to see whether it has an Apple
+chip or an Intel processor. Open the matching DMG, drag **OCvoice Audio Router**
+to Applications, and open it. Both Mac downloads are signed and notarized by Apple.
+On Windows, extract the entire ZIP and open `ocvoice-audio-router.exe`; keep all
+three files together. The Windows program is not Authenticode-signed.
+
+Older versions such as 0.3.2 support multi-channel audio only; update for YouTube.
 
 The app appears in your menu bar or system tray and starts when you log in.
 
@@ -41,8 +37,9 @@ running OBS. Keep OCvoice Audio Router open while broadcasting.
 3. Enter the code and click **Connect computer / Forbind computer**. The page
    shows your connected organization. No backend address is needed.
 4. Click **Start connection / Start forbindelse**. Choose languages and create
-   the translated broadcasts in OCvoice. Check their visibility before sending
-   video. The video receiver starts when OCvoice supplies a broadcast job.
+   the translated broadcasts in OCvoice. These broadcasts are created as
+   **public** and may start automatically when video arrives. Use a test channel
+   for rehearsal. The video receiver starts when OCvoice supplies a broadcast job.
 5. In **OBS → Settings → Stream**, choose **Custom**, set **Server** to
    `rtmp://127.0.0.1:1935/live` and **Stream Key** to `ocvoice`. Copy buttons
    are available on the setup page. Use H.264 video and start streaming in OBS.
