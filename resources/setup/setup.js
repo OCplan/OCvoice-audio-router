@@ -12,14 +12,21 @@ const da = {
 let language = navigator.language.startsWith('da') ? 'da' : 'en';
 let state;
 let busy = false;
+let problemMessage = ['', ''];
 const tr = (en, dk) => language === 'da' ? dk : en;
 function translate() {
   document.documentElement.lang = language;
   $('language').value = language;
   document.querySelectorAll('[data-text]').forEach(el => { el.textContent = (language === 'da' ? da : english)[el.dataset.text]; });
+  problem(...problemMessage);
   render();
 }
-function problem(message) { $('problem').textContent = message; $('problem').hidden = !message; }
+function problem(en, dk = en) {
+  problemMessage = [en, dk];
+  const message = tr(en, dk);
+  $('problem').textContent = message;
+  $('problem').hidden = !message;
+}
 function render() {
   const running = state && ['running','starting'].includes(state.status);
   const ready = state && state.engineAvailable && state.videoSupportAvailable;
@@ -55,9 +62,9 @@ async function control(action, body) {
     }
     await refresh();
   } catch (error) {
-    problem(error.message === 'pair'
-      ? tr('Could not connect this code. Check internet access, generate a new code in OCvoice and try again.','Koden kunne ikke forbindes. Kontrollér internetforbindelsen, få en ny kode i OCvoice, og prøv igen.')
-      : tr('The app could not complete the action. Check that it is open; stop and start the connection again.','Appen kunne ikke udføre handlingen. Kontrollér, at den er åben; stop og start forbindelsen igen.'));
+    problem(...(error.message === 'pair'
+      ? ['Could not connect this code. Check internet access, generate a new code in OCvoice and try again.','Koden kunne ikke forbindes. Kontrollér internetforbindelsen, få en ny kode i OCvoice, og prøv igen.']
+      : ['The app could not complete the action. Check that it is open; stop and start the connection again.','Appen kunne ikke udføre handlingen. Kontrollér, at den er åben; stop og start forbindelsen igen.']));
   } finally { busy = false; render(); }
 }
 $('language').addEventListener('change', event => { language = event.target.value; translate(); });
@@ -66,7 +73,7 @@ $('start').addEventListener('click', () => control('start'));
 $('stop').addEventListener('click', () => control('stop'));
 document.querySelectorAll('[data-copy]').forEach(button => button.addEventListener('click', async () => {
   try { await navigator.clipboard.writeText($(button.dataset.copy).value); button.textContent = tr('Copied','Kopieret'); }
-  catch { $(button.dataset.copy).select(); problem(tr('Select and copy the field.','Markér og kopiér feltet.')); }
+  catch { $(button.dataset.copy).select(); problem('Select and copy the field.','Markér og kopiér feltet.'); }
 }));
 translate();
 async function poll() {
