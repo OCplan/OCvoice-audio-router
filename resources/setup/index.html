@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCvoice Audio Router · YouTube setup</title>
+<link rel="stylesheet" href="/setup.css"><script src="/setup.js" defer></script>
+</head>
+<body>
+<header><span class="brand">OCvoice <span>Audio Router</span></span><label><span class="sr-only">Language / Sprog</span><select id="language"><option value="en">English</option><option value="da">Dansk</option></select></label></header>
+<main>
+<p class="eyebrow" data-text="eyebrow">YOUTUBE · THIS COMPUTER</p>
+<h1 data-text="title">Connect the computer that sends your video</h1>
+<p class="intro" data-text="intro">Keep this app open on the computer running OBS or your video program. It combines your video with OCvoice’s translated audio for your YouTube broadcasts.</p>
+<div class="status" role="status" aria-live="polite"><span id="status">Checking the app…</span><small id="version"></small></div>
+<p id="problem" role="alert" hidden></p>
+<section><span class="step">1</span><h2 data-text="pairTitle">Connect this computer to OCvoice</h2>
+<p data-text="pairHelp">In OCvoice, connect your YouTube channel and generate a one-time code to connect a computer. Enter that code here.</p>
+<a href="https://ocvoice.dk" target="_blank" rel="noreferrer" data-text="openWeb">Open OCvoice ↗</a>
+<form id="pair-form"><label for="code" data-text="code">One-time code</label><div class="row"><input id="code" name="code" required maxlength="128" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD2345"><button id="pair" type="submit" data-text="pair">Connect computer</button></div></form>
+<p id="paired" class="success" hidden></p>
+<p class="hint" data-text="repair">To use another OCvoice account, stop the connection first and enter a new code.</p>
+</section>
+<section><span class="step">2</span><h2 data-text="startTitle">Start the connection</h2>
+<p data-text="startHelp">Start the connection here. Then choose languages and create the translated broadcasts in OCvoice. Check their visibility before sending video.</p>
+<div class="row"><button id="start" type="button" data-text="start" disabled>Start connection</button><button id="stop" class="secondary" type="button" data-text="stop" disabled>Stop connection</button></div>
+<p class="hint" data-text="liveHint">A running connection does not mean video is arriving or YouTube is live. Check broadcast status and viewer links in OCvoice.</p>
+</section>
+<section><span class="step">3</span><h2 data-text="videoTitle">Send video from OBS</h2>
+<p data-text="videoHelp">On this computer, open OBS → Settings → Stream. Choose Custom as the service and copy these fields. Use H.264 video. Start streaming in OBS after creating the broadcasts in OCvoice.</p>
+<label for="obs-server" data-text="server">Server</label><div class="row"><input id="obs-server" readonly><button class="secondary" data-copy="obs-server" data-text="copy" type="button">Copy</button></div>
+<label for="obs-key" data-text="key">Stream key</label><div class="row"><input id="obs-key" readonly><button class="secondary" data-copy="obs-key" data-text="copy" type="button">Copy</button></div>
+<p class="hint" data-text="keyHint">This is a local video label, not your YouTube stream key. The app does not find your camera automatically. Other video programs must support sending RTMP video to these same fields.</p>
+</section>
+<section><span class="step">4</span><h2 data-text="checkTitle">Check picture and translated sound</h2><p data-text="checkHelp">Open each YouTube viewer link from OCvoice. Check the language, picture and sound together. When finished, stop the broadcasts in OCvoice and stop streaming in OBS, then stop the connection here.</p></section>
+<footer data-text="footer">The app must stay open while broadcasting. Open this page again from the app’s “YouTube setup / Opsætning” menu.</footer>
+</main>
+</body></html>

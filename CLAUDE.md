@@ -18,8 +18,8 @@ because a change looked finished.
 
 ## 1. The HTTP surface is larger than the README table
 
-The README lists four routes. The server binds `127.0.0.1:$PORT` (default
-`9876`, `src/main.rs`) and serves eight:
+The server binds `127.0.0.1:$PORT` (default
+`9876`, `src/main.rs`) and serves these route groups:
 
 | Route | Method | Group |
 |---|---|---|
@@ -27,6 +27,8 @@ The README lists four routes. The server binds `127.0.0.1:$PORT` (default
 | `/devices` | GET | legacy audio |
 | `/play` | POST | legacy audio |
 | `/stop` | POST | legacy audio |
+| `/setup`, `/setup.js`, `/setup.css` | GET | setup, guarded |
+| `/restream/setup` | GET | setup status, guarded |
 | `/restream/pair` | POST | restream control |
 | `/restream/start` | POST | restream control |
 | `/restream/stop` | POST | restream control |
@@ -48,7 +50,7 @@ oversight to anyone tidying the router, and it is not one.
   onto it, so it does not extend to the restream routes. That ordering is load
   bearing: reordering those builder calls silently widens the restream surface
   to every origin.
-- The three restream *control* routes additionally sit behind
+- Setup assets, setup status and the three restream *control* routes sit behind
   `restream_origin_guard`, which requires a local `Host` and rejects a
   non-local `Origin` with `403`. Restream control is deliberately
   unauthenticated for the native localhost client, and this guard is what
@@ -113,8 +115,7 @@ you — commit it).
 
 ## 5. The shipped artifact is not a single binary
 
-The README still calls the Windows release a standalone `.exe`. It has not been
-one since the restream engine was bundled:
+The complete app includes sidecars:
 
 - Windows: the zip contains `ocvoice-audio-router.exe`,
   `ocvoice-restream-engine.exe` and `ffmpeg.exe`.
@@ -129,11 +130,11 @@ and move together), and `ffmpeg` against two checks — it must not be
 inside a GPL-3.0 app, and it must support `rtmps`, because the push target needs
 TLS.
 
-The `FFMPEG_URL_*` defaults still point at a `--enable-nonfree` build and will
-therefore be rejected by that gate. Repointing them at redistributable GPL
-builds with pinned digests is a deliberate piece of work of its own — it is a
-precondition for the next release, not a detail to fix in passing while doing
-something else.
+The `FFMPEG_URL_*` and matching digests are pinned in the workflow to the
+redistributable `ffmpeg-deps-9.0.1` assets. Repo variables do not override them.
+Every sidecar checksum is mandatory. Both macOS slices require all signing and
+notarization inputs; missing credentials must fail the build. Windows currently
+has no Authenticode signing configuration.
 
 ## 6. Working notes
 
@@ -145,3 +146,23 @@ something else.
   Keep it that way: it drives a shell stub and sends signals.
 - Audio streams live on a dedicated OS thread because cpal requires it. Moving
   that work onto the async runtime is not a simplification.
+
+## 7. Setup and pairing
+
+The setup page is bundled under `resources/setup/` and served by `src/setup.rs`.
+It only calls same-origin localhost routes. Keep the CSP and frame denial: the
+page must not load remote scripts or be embedded by another website.
+`/restream/setup` exposes safe UI status and OBS fields, never credentials or raw
+engine diagnostics. Running means the process is running, not that video or a
+YouTube broadcast is live.
+
+Pairing calls the product HTTP action directly with a JSON body. Do not put the
+one-time code in process arguments or log response bodies. The default public
+backend matches the deployed OCvoice web client; test fixtures override it with
+a local server. Pairing and engine lifecycle operations share a lock. Persist a
+new credential successfully before reporting the computer as linked.
+
+`cargo test setup_browser_preview -- --ignored --nocapture` serves synthetic
+pairing on port 19876 (code `TEST2345`); it is a manual fixture, not a product
+acceptance test. The ordinary suite includes real TCP/HTTP policy checks and
+supervisor restart checks without any live YouTube action.

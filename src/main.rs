@@ -23,6 +23,7 @@ use tower_http::cors::CorsLayer;
 use tray_item::TrayItem;
 
 mod restream;
+mod setup;
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -71,6 +72,14 @@ enum TrayUpdate {
 struct GitHubRelease {
     tag_name: String,
     html_url: String,
+    draft: bool,
+    prerelease: bool,
+    assets: Vec<ReleaseAsset>,
+}
+
+#[derive(Deserialize)]
+struct ReleaseAsset {
+    name: String,
 }
 
 // ── Mixer ────────────────────────────────────────────────────────────
@@ -682,12 +691,7 @@ async fn restream_origin_guard(request: Request, next: Next) -> Response {
     next.run(request).await
 }
 
-async fn run_http_server(
-    audio_tx: mpsc::UnboundedSender<AudioCmd>,
-    restream: restream::RestreamSupervisor,
-    port: u16,
-) {
-    let state = AppState { audio_tx, restream };
+fn http_app(state: AppState) -> Router {
 
     let legacy_routes = Router::new()
         .route("/health", get(health))
@@ -702,20 +706,35 @@ async fn run_http_server(
         );
 
     let restream_control_routes = Router::new()
+        .route("/setup", get(restream::setup_status))
         .route("/pair", post(restream::pair))
         .route("/start", post(restream::start))
         .route("/stop", post(restream::stop))
         .route_layer(middleware::from_fn(restream_origin_guard));
 
-    let app = legacy_routes
+    let setup_routes = Router::new()
+        .route("/setup", get(setup::page))
+        .route("/setup.js", get(setup::script))
+        .route("/setup.css", get(setup::style))
+        .route_layer(middleware::from_fn(restream_origin_guard));
+
+    legacy_routes
+        .merge(setup_routes)
         .nest(
             "/restream",
             Router::new()
                 .merge(restream_control_routes)
                 .route("/status", get(restream::status)),
         )
-        .with_state(state);
+        .with_state(state)
+}
 
+async fn run_http_server(
+    audio_tx: mpsc::UnboundedSender<AudioCmd>,
+    restream: restream::RestreamSupervisor,
+    port: u16,
+) {
+    let app = http_app(AppState { audio_tx, restream });
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{port}"))
         .await
         .expect("Failed to bind port");
@@ -728,7 +747,7 @@ async fn run_http_server(
 async fn check_for_update() -> Option<(String, String)> {
     let client = reqwest::Client::new();
     let resp = client
-        .get("https://api.github.com/repos/OCplan/ocvoice-audio-router/releases/latest")
+        .get("https://api.github.com/repos/OCplan/ocvoice-audio-router/releases?per_page=100")
         .header("User-Agent", "ocvoice-audio-router")
         .send()
         .await
@@ -738,18 +757,25 @@ async fn check_for_update() -> Option<(String, String)> {
         return None;
     }
 
-    let release: GitHubRelease = resp.json::<GitHubRelease>().await.ok()?;
-    let remote_tag = release.tag_name.strip_prefix('v').unwrap_or(&release.tag_name);
-    let current = env!("CARGO_PKG_VERSION");
+    let releases = resp.json::<Vec<GitHubRelease>>().await.ok()?;
+    select_update(releases, env!("CARGO_PKG_VERSION"))
+}
 
-    let remote_ver = semver::Version::parse(remote_tag).ok()?;
-    let current_ver = semver::Version::parse(current).ok()?;
-
-    if remote_ver > current_ver {
-        Some((release.tag_name, release.html_url))
-    } else {
-        None
-    }
+fn select_update(releases: Vec<GitHubRelease>, current: &str) -> Option<(String, String)> {
+    let current = semver::Version::parse(current).ok()?;
+    releases.into_iter().filter_map(|release| {
+        if release.draft || release.prerelease {
+            return None;
+        }
+        let version = semver::Version::parse(release.tag_name.strip_prefix('v')?).ok()?;
+        let has_app = release.assets.iter().any(|asset| {
+            asset.name.starts_with("OCvoice-Audio-Router-")
+                && (asset.name.ends_with(".dmg") || asset.name.ends_with(".zip")
+                    || asset.name.ends_with(".exe"))
+        });
+        (version > current && version.pre.is_empty() && has_app)
+            .then_some((version, release.tag_name, release.html_url))
+    }).max_by(|a, b| a.0.cmp(&b.0)).map(|(_, tag, url)| (tag, url))
 }
 
 async fn update_check_loop(tray_tx: std::sync::mpsc::Sender<TrayUpdate>) {
@@ -771,7 +797,7 @@ async fn update_check_loop(tray_tx: std::sync::mpsc::Sender<TrayUpdate>) {
 
 // ── System Tray ─────────────────────────────────────────────────────
 
-fn run_tray(device_count: usize, tray_rx: std::sync::mpsc::Receiver<TrayUpdate>) {
+fn run_tray(device_count: usize, tray_rx: std::sync::mpsc::Receiver<TrayUpdate>, port: u16) {
     #[cfg(target_os = "macos")]
     let icon = tray_item::IconSource::Data {
         width: 36,
@@ -787,6 +813,10 @@ fn run_tray(device_count: usize, tray_rx: std::sync::mpsc::Receiver<TrayUpdate>)
     let version = env!("CARGO_PKG_VERSION");
     let _ = tray.add_label(&format!("OCvoice Audio Router v{version}"));
     let _ = tray.add_label(&format!("{device_count} audio device{}", if device_count == 1 { "" } else { "s" }));
+
+    let _ = tray.add_menu_item("YouTube setup / Opsætning", move || {
+        let _ = open::that(format!("http://127.0.0.1:{port}/setup"));
+    });
 
     // Store update URL behind a mutex so the menu callback can read it
     let update_url: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
@@ -906,7 +936,7 @@ fn main() {
     println!("  Your web app will detect this automatically.\n");
 
     // Main thread: run tray event loop (blocks forever)
-    run_tray(device_count, tray_rx);
+    run_tray(device_count, tray_rx, port);
 }
 
 #[cfg(test)]
@@ -940,5 +970,24 @@ mod origin_guard_tests {
             None
         ));
         assert!(!restream_request_origin_guard_allows(None, None));
+    }
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::*;
+
+    #[test]
+    fn updater_selects_highest_app_release_not_dependency_or_preview() {
+        let releases: Vec<GitHubRelease> = serde_json::from_value(serde_json::json!([
+            {"tag_name":"ffmpeg-deps-99.0.0","html_url":"deps","draft":false,"prerelease":false,"assets":[{"name":"ffmpeg.gz"}]},
+            {"tag_name":"v0.4.0","html_url":"app","draft":false,"prerelease":false,"assets":[{"name":"OCvoice-Audio-Router-Windows.zip"}]},
+            {"tag_name":"v0.3.2","html_url":"old","draft":false,"prerelease":false,"assets":[{"name":"OCvoice-Audio-Router-Windows.exe"}]},
+            {"tag_name":"v99.0.0","html_url":"draft","draft":true,"prerelease":false,"assets":[{"name":"OCvoice-Audio-Router-Windows.zip"}]},
+            {"tag_name":"v98.0.0","html_url":"preview","draft":false,"prerelease":true,"assets":[{"name":"OCvoice-Audio-Router-Windows.zip"}]},
+            {"tag_name":"v97.0.0","html_url":"empty","draft":false,"prerelease":false,"assets":[]}
+        ])).unwrap();
+        assert_eq!(select_update(releases, "0.3.2"), Some(("v0.4.0".into(), "app".into())));
+        assert_eq!(select_update(vec![], "0.4.0"), None);
     }
 }
