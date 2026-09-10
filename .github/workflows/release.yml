@@ -243,10 +243,7 @@ jobs:
             cp -R "${APP_NAME}" dmg_contents/
             ln -s /Applications dmg_contents/Applications
 
-            hdiutil create -volname "OCvoice Audio Router" \
-              -srcfolder dmg_contents \
-              -ov -format UDZO \
-              "${ARTIFACT_NAME}.dmg"
+            bash scripts/create-dmg.sh dmg_contents "${ARTIFACT_NAME}.dmg"
 
             # Sign the DMG
             codesign --force --sign "${IDENTITY}" --timestamp "${ARTIFACT_NAME}.dmg"
@@ -288,10 +285,7 @@ jobs:
             cp -R "${APP_NAME}" dmg_contents/
             ln -s /Applications dmg_contents/Applications
 
-            hdiutil create -volname "OCvoice Audio Router" \
-              -srcfolder dmg_contents \
-              -ov -format UDZO \
-              "${ARTIFACT_NAME}.dmg"
+            bash scripts/create-dmg.sh dmg_contents "${ARTIFACT_NAME}.dmg"
           fi
 
       - name: Fetch Windows engine and ffmpeg
