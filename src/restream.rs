@@ -215,12 +215,16 @@ impl RestreamSupervisor {
             .timeout(PAIR_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
             .build().map_err(|_| "Could not connect to OCvoice".to_string())?;
+        let mut payload = serde_json::json!({
+            "code": code,
+            "appVersion": concat!("ocvoice-audio-router/", env!("CARGO_PKG_VERSION")),
+        });
+        // The backend accepts an optional string, not JSON null.
+        if let Some(name) = name.filter(|value| !value.trim().is_empty()) {
+            payload["name"] = serde_json::Value::String(name);
+        }
         let response = client.post(format!("{}/restream-device/pair", convex_url.trim_end_matches('/')))
-            .json(&serde_json::json!({
-                "code": code,
-                "name": name.filter(|value| !value.trim().is_empty()),
-                "appVersion": concat!("ocvoice-audio-router/", env!("CARGO_PKG_VERSION")),
-            }))
+            .json(&payload)
             .send().await.map_err(|_| "Could not reach OCvoice. Check your internet connection before generating a new code.".to_string())?;
         if !response.status().is_success() {
             return Err("OCvoice could not pair this code. Generate a new code in OCvoice and try again.".to_string());
@@ -915,6 +919,9 @@ mod http_tests {
     async fn pairing_backend(Json(body): Json<serde_json::Value>) -> Response {
         use axum::response::IntoResponse;
         assert_eq!(body["appVersion"], concat!("ocvoice-audio-router/", env!("CARGO_PKG_VERSION")));
+        if body.get("name").is_some_and(|name| !name.is_string()) {
+            return (StatusCode::BAD_REQUEST, "optional name must be omitted or a string").into_response();
+        }
         match body["code"].as_str() {
             Some("TEST2345") => Json(serde_json::json!({
                 "deviceToken": "test-only-device-secret", "orgName": "Example organization"
