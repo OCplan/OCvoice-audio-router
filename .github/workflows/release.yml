@@ -42,6 +42,7 @@ jobs:
   build:
     needs: version-gate
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest

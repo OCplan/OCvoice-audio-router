@@ -6,21 +6,26 @@ audio to your YouTube broadcasts.
 
 ## Download
 
-[Audio Router v0.4.0](https://github.com/OCplan/OCvoice-audio-router/releases/tag/v0.4.0)
-includes the app, the restream engine and video support.
+**YouTube setup is implemented in source version 0.4.0 but is not released yet.**
+The macOS release is waiting for the developer account's Apple agreement to be
+renewed before notarization can complete. Do not use an older app for the
+YouTube setup described below.
 
-| Computer | Download |
+The current [v0.3.2 release](https://github.com/OCplan/OCvoice-audio-router/releases/tag/v0.3.2)
+supports multi-channel audio only.
+
+The complete 0.4.0 release will contain these files:
+
+| Computer | Planned file |
 |---|---|
-| Mac with Apple silicon (M-series) | [macOS arm64](https://github.com/OCplan/OCvoice-audio-router/releases/download/v0.4.0/OCvoice-Audio-Router-macOS-arm64.dmg) |
-| Mac with Intel processor | [macOS Intel](https://github.com/OCplan/OCvoice-audio-router/releases/download/v0.4.0/OCvoice-Audio-Router-macOS-x64.dmg) |
-| Windows (64-bit) | [Windows ZIP](https://github.com/OCplan/OCvoice-audio-router/releases/download/v0.4.0/OCvoice-Audio-Router-Windows.zip) |
+| Mac with Apple silicon (M-series) | `OCvoice-Audio-Router-macOS-arm64.dmg` |
+| Mac with Intel processor | `OCvoice-Audio-Router-macOS-x64.dmg` |
+| Windows (64-bit) | `OCvoice-Audio-Router-Windows.zip` |
 
-**Mac:** Open the DMG, drag **OCvoice Audio Router** to Applications, and open it.
-The release apps are signed and notarized.
-
-**Windows:** Extract the entire ZIP and open `ocvoice-audio-router.exe` inside
-its folder. Keep all three application files together. The Windows program is
-not Authenticode-signed; Windows may show a SmartScreen prompt.
+For the complete release, open the Mac DMG, drag **OCvoice Audio Router** to
+Applications, and open it. On Windows, extract the entire ZIP and open
+`ocvoice-audio-router.exe`; keep all three files together. The Windows program
+is not Authenticode-signed. macOS publication requires signing and notarization.
 
 The app appears in your menu bar or system tray and starts when you log in.
 
