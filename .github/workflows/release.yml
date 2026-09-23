@@ -33,7 +33,7 @@ jobs:
   # in a script rather than inline here so it can be run — and re-verified after
   # it is edited — without pushing a tag to a public repo.
   version-gate:
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Verify tag, Cargo.toml and Info.plist agree
@@ -356,7 +356,7 @@ jobs:
 
   release:
     needs: [version-gate, build]
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
