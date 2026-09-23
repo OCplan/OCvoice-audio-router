@@ -6,20 +6,26 @@ audio to your YouTube broadcasts.
 
 ## Download
 
-Download [version 0.4.0](https://github.com/OCplan/OCvoice-audio-router/releases/tag/v0.4.0)
+Download [version 0.4.1](https://github.com/OCplan/OCvoice-audio-router/releases/tag/v0.4.1)
 on the computer that sends your video.
 
 | Computer | Download |
 |---|---|
-| Mac with Apple silicon (M-series) | [Mac Apple silicon](https://github.com/OCplan/OCvoice-audio-router/releases/download/v0.4.0/OCvoice-Audio-Router-macOS-arm64.dmg) |
-| Mac with Intel processor | [Mac Intel](https://github.com/OCplan/OCvoice-audio-router/releases/download/v0.4.0/OCvoice-Audio-Router-macOS-x64.dmg) |
-| Windows (64-bit) | [Windows ZIP](https://github.com/OCplan/OCvoice-audio-router/releases/download/v0.4.0/OCvoice-Audio-Router-Windows.zip) |
+| Mac with Apple silicon (M-series) | [Mac Apple silicon](https://github.com/OCplan/OCvoice-audio-router/releases/download/v0.4.1/OCvoice-Audio-Router-macOS-arm64.dmg) |
+| Mac with Intel processor | [Mac Intel](https://github.com/OCplan/OCvoice-audio-router/releases/download/v0.4.1/OCvoice-Audio-Router-macOS-x64.dmg) |
+| Windows (64-bit) | [Windows ZIP](https://github.com/OCplan/OCvoice-audio-router/releases/download/v0.4.1/OCvoice-Audio-Router-Windows.zip) |
+| Linux (x86-64) | [Linux tarball](https://github.com/OCplan/OCvoice-audio-router/releases/download/v0.4.1/OCvoice-Audio-Router-Linux-x64.tar.gz) |
 
 On a Mac, open **Apple menu → About This Mac** to see whether it has an Apple
 chip or an Intel processor. Open the matching DMG, drag **OCvoice Audio Router**
 to Applications, and open it. Both Mac downloads are signed and notarized by Apple.
 On Windows, extract the entire ZIP and open `ocvoice-audio-router.exe`; keep all
 three files together. The Windows program is not Authenticode-signed.
+On Linux, run `tar -xzf OCvoice-Audio-Router-Linux-x64.tar.gz` and start
+`ocvoice-audio-router` inside the extracted folder; keep all three files
+together. It needs ALSA and D-Bus, which every desktop distribution has. The
+tray icon needs a desktop with StatusNotifier support (KDE, or GNOME with the
+AppIndicator extension); the app works without it.
 
 Older versions such as 0.3.2 support multi-channel audio only; update for YouTube.
 
@@ -104,7 +110,7 @@ For development, `PORT`, `RESTREAM_CONVEX_URL`, `RESTREAM_ENGINE_PATH`,
 manual UI checks; it never contacts the product backend.
 
 Before a release, update `Cargo.toml`, `Cargo.lock` and both version fields in
-`resources/macos/Info.plist`, then run `scripts/check-version-tag.sh v0.4.0`.
+`resources/macos/Info.plist`, then run `scripts/check-version-tag.sh v0.4.1`.
 The updater selects versioned app releases and ignores dependency releases.
 
 ## License

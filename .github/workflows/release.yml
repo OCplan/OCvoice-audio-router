@@ -274,9 +274,15 @@ jobs:
                 --issuer "${APPLE_API_ISSUER_ID}" \
                 --wait
 
+              # notarytool reports Accepted before the ticket is served, so an
+              # immediate staple or validate can fail with Error 68. Retry
+              # instead of failing a signed, notarized build on a propagation delay.
               echo "Stapling notarization ticket..."
-              xcrun stapler staple "${ARTIFACT_NAME}.dmg"
-              xcrun stapler validate "${ARTIFACT_NAME}.dmg"
+              for attempt in 1 2 3 4 5 6; do
+                if xcrun stapler staple "${ARTIFACT_NAME}.dmg" && xcrun stapler validate "${ARTIFACT_NAME}.dmg"; then break; fi
+                if [[ "${attempt}" == 6 ]]; then exit 1; fi
+                sleep 30
+              done
               codesign --verify --strict "${ARTIFACT_NAME}.dmg"
 
               rm -rf "${API_KEY_DIR}"
