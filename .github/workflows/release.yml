@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
 
 env:
-  # The engine tag and the three digests below are ONE unit: bumping the engine
-  # means changing the tag and all three ENGINE_SHA256_* values in the same commit.
+  # The engine tag and the four digests below are ONE unit: bumping the engine
+  # means changing the tag and all four ENGINE_SHA256_* values in the same commit.
   #
   # Pinned, not floating, for two reasons. (1) These assets live in OCplan/OCvoice,
   # the main product repo — "latest" there follows whatever release was cut most
@@ -21,10 +21,11 @@ env:
   # There is deliberately no repo-var or dispatch-input override: an override
   # would change the signed payload without changing this file, and would
   # invalidate the digests below with no diff to review.
-  ENGINE_VERSION: restream-engine-v0.1.0
-  ENGINE_SHA256_DARWIN_ARM64: 8dbbaec4f6aef3943b5d25591b411337062863c65f5653938036125b412a965f
-  ENGINE_SHA256_DARWIN_X64: 02fdfa282c14eb4f8c50badc18c51fcea86103fe94ef4ae1e2e50f3c293529d4
-  ENGINE_SHA256_WINDOWS_X64: a4bfa3c02f103d5cfbbd96821fb76dd167d3ce50620549af520cb377e702a381
+  ENGINE_VERSION: restream-engine-v0.1.1
+  ENGINE_SHA256_DARWIN_ARM64: TBD_DARWIN_ARM64
+  ENGINE_SHA256_DARWIN_X64: TBD_DARWIN_X64
+  ENGINE_SHA256_WINDOWS_X64: TBD_WINDOWS_X64
+  ENGINE_SHA256_LINUX_X64: TBD_LINUX_X64
 
 jobs:
   # Refuse to build anything whose version numbers disagree, before the matrix
@@ -57,6 +58,12 @@ jobs:
             target: x86_64-pc-windows-msvc
             artifact: OCvoice-Audio-Router-Windows
             binary: ocvoice-audio-router.exe
+          # Pinned, not -latest: the binary links against the runner's glibc,
+          # so this image sets the oldest distribution the download runs on.
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            artifact: OCvoice-Audio-Router-Linux-x64
+            binary: ocvoice-audio-router
 
     runs-on: ${{ matrix.os }}
 
@@ -67,6 +74,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      # ALSA for cpal, libdbus for the ksni tray backend.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev libdbus-1-dev
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -92,11 +104,11 @@ jobs:
         run: cargo test --release --target ${{ matrix.target }}
 
       # -D warnings, because a clippy that only warns gates nothing. Confined to
-      # the arm64 macOS slice: that is the configuration it has been shown clean
-      # on. The Windows-only cfg paths have never been linted, so widening this
-      # belongs in a change that first shows it green there.
+      # the arm64 macOS and Linux slices: those are the configurations it has
+      # been shown clean on. The Windows-only cfg paths have never been linted,
+      # so widening this belongs in a change that first shows it green there.
       - name: Clippy
-        if: matrix.target == 'aarch64-apple-darwin'
+        if: matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu'
         run: cargo clippy --all-targets --target ${{ matrix.target }} -- -D warnings
 
       # DMG creation duplicates the signed bundle and needs space beyond the
@@ -340,6 +352,61 @@ jobs:
           powershell.exe -NoProfile -Command \
             "Compress-Archive -Path '${ARTIFACT_NAME}' -DestinationPath '${ARTIFACT_NAME}.zip' -Force"
 
+      - name: Fetch Linux engine and ffmpeg
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.OCVOICE_RELEASE_TOKEN }}
+          FFMPEG_URL_LINUX: https://github.com/OCplan/OCvoice-audio-router/releases/download/ffmpeg-deps-9.0.1/ffmpeg-linux-x64.gz
+          FFMPEG_SHA256_LINUX: cf013be2eacf8387460bb64b2911127968a221b156ca3e4856bddc6121a62ab3
+        run: |
+          set -euo pipefail
+          DEPS_DIR="${PWD}/.release-sidecars"
+          ENGINE_ASSET="ocvoice-restream-engine-linux-x64"
+          rm -rf "${DEPS_DIR}"
+          mkdir -p "${DEPS_DIR}"
+
+          gh release download "${ENGINE_VERSION}" --repo OCplan/OCvoice \
+            --pattern "${ENGINE_ASSET}" --dir "${DEPS_DIR}"
+          mv "${DEPS_DIR}/${ENGINE_ASSET}" "${DEPS_DIR}/ocvoice-restream-engine"
+
+          # Fail-closed integrity gate (see the macOS step): the engine ships inside
+          # the artifact we publish, so an unverified download would be distributed
+          # as ours. Unconditional by design.
+          printf '%s  %s\n' "${ENGINE_SHA256_LINUX_X64}" "${DEPS_DIR}/ocvoice-restream-engine" | sha256sum --check
+
+          curl --fail --location --retry 3 "${FFMPEG_URL_LINUX}" --output "${DEPS_DIR}/ffmpeg.gz"
+          printf '%s  %s\n' "${FFMPEG_SHA256_LINUX}" "${DEPS_DIR}/ffmpeg.gz" | sha256sum --check
+          gzip -dc "${DEPS_DIR}/ffmpeg.gz" > "${DEPS_DIR}/ffmpeg"
+          chmod +x "${DEPS_DIR}/ocvoice-restream-engine" "${DEPS_DIR}/ffmpeg"
+
+          # Fail-closed distribution + capability gate (see the macOS step):
+          # reject a non-redistributable --enable-nonfree build, require rtmps/TLS.
+          if "${DEPS_DIR}/ffmpeg" -hide_banner -version 2>/dev/null | grep -q -- "--enable-nonfree"; then
+            echo "::error::bundled ffmpeg is --enable-nonfree (not redistributable); set FFMPEG_URL_LINUX to a GPL build"; exit 1
+          fi
+          if ! "${DEPS_DIR}/ffmpeg" -hide_banner -protocols 2>/dev/null | grep -qi "rtmps"; then
+            echo "::error::bundled ffmpeg lacks rtmps/TLS; the YouTube push would fail"; exit 1
+          fi
+
+      # Linux: a tarball rather than a zip, so the executable bits survive
+      # extraction. The router finds its sidecars next to its own executable.
+      - name: Package Linux binaries
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ matrix.artifact }}
+          BUILD_TARGET: ${{ matrix.target }}
+          BUILD_BINARY: ${{ matrix.binary }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${ARTIFACT_NAME}"
+          cp "target/${BUILD_TARGET}/release/${BUILD_BINARY}" "${ARTIFACT_NAME}/${BUILD_BINARY}"
+          cp ".release-sidecars/ocvoice-restream-engine" "${ARTIFACT_NAME}/ocvoice-restream-engine"
+          cp ".release-sidecars/ffmpeg" "${ARTIFACT_NAME}/ffmpeg"
+          chmod +x "${ARTIFACT_NAME}"/*
+          tar -czf "${ARTIFACT_NAME}.tar.gz" "${ARTIFACT_NAME}"
+
       - name: Upload artifact (macOS)
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
@@ -353,6 +420,13 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: "${{ matrix.artifact }}.zip"
+
+      - name: Upload artifact (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: "${{ matrix.artifact }}.tar.gz"
 
   release:
     needs: [version-gate, build]
@@ -381,6 +455,7 @@ jobs:
             | **macOS (Apple Silicon — M1/M2/M3/M4)** | `OCvoice-Audio-Router-macOS-arm64.dmg` |
             | **macOS (Intel)** | `OCvoice-Audio-Router-macOS-x64.dmg` |
             | **Windows** | `OCvoice-Audio-Router-Windows.zip` |
+            | **Linux (x86-64)** | `OCvoice-Audio-Router-Linux-x64.tar.gz` |
 
             ### macOS
             1. Download and open the `.dmg` file
@@ -393,6 +468,13 @@ jobs:
             3. Click "More info" → "Run anyway" if SmartScreen blocks it
             4. Done — starts automatically on login
 
+            ### Linux
+            1. Extract: `tar -xzf OCvoice-Audio-Router-Linux-x64.tar.gz`
+            2. Run `./ocvoice-audio-router` inside the extracted folder
+            3. Done — starts automatically on login. The tray icon needs a
+               desktop with StatusNotifier support (KDE, or GNOME with the
+               AppIndicator extension); the app works without it.
+
             ### YouTube setup
             On the computer sending your video, open **YouTube setup / Opsætning**
             from the app menu. Enter the one-time computer code from OCvoice,
@@ -401,8 +483,8 @@ jobs:
             visibility and viewer links in OCvoice before sending video.
 
             This release includes the restream engine and video support. Keep
-            all three Windows files together. macOS apps are signed and notarized.
-            The Windows ZIP is not Authenticode-signed.
+            all three Windows or Linux files together. macOS apps are signed and
+            notarized. The Windows ZIP is not Authenticode-signed.
 
             Bundled video component source and build information:
             https://github.com/OCplan/OCvoice-audio-router/releases/tag/ffmpeg-deps-9.0.1

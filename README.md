@@ -92,7 +92,8 @@ is supplied by the app.
 ## Build and test
 
 Install [Rust](https://rustup.rs), then run `cargo build --release`, `cargo test`
-and `cargo clippy --all-targets -- -D warnings`. Audio runs on a dedicated thread
+and `cargo clippy --all-targets -- -D warnings`. On Linux, first install
+`pkg-config`, `libasound2-dev` and `libdbus-1-dev` (Debian/Ubuntu names). Audio runs on a dedicated thread
 using cpal; the HTTP service uses Axum. Release CI bundles the pinned engine and
 video binaries, verifies their digests and capabilities, and signs/notarizes
 macOS bundles. A raw Cargo build alone does not include these components.

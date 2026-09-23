@@ -1,6 +1,6 @@
 [package]
 name = "ocvoice-audio-router"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "OCvoice Audio Router — routes translated audio to multi-channel audio interfaces"
 license = "GPL-3.0"
@@ -25,6 +25,12 @@ tray-item = "0.10"
 open = "5"
 # Semantic version comparison for auto-update check
 semver = "1"
+
+# tray-item has no Linux backend unless one is selected; without it the crate
+# does not compile there. ksni speaks the StatusNotifierItem DBus protocol
+# directly, so the app needs libdbus at runtime but not GTK.
+[target.'cfg(target_os = "linux")'.dependencies]
+tray-item = { version = "0.10", features = ["ksni"] }
 
 [profile.release]
 strip = true

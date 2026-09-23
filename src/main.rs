@@ -227,7 +227,51 @@ r#"<?xml version="1.0" encoding="UTF-8"?>
         }
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        // XDG autostart: desktop sessions launch every entry in this directory
+        // at login. Exec is quoted because the extracted folder may contain spaces;
+        // the Desktop Entry spec escapes twice — once for the quoted argument,
+        // then backslashes again as a string value — and doubles '%'.
+        let config_home = std::env::var_os("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")));
+        let Some(config_home) = config_home else {
+            eprintln!("  Auto-start: neither XDG_CONFIG_HOME nor HOME is set");
+            return;
+        };
+        let autostart_dir = config_home.join("autostart");
+        let desktop_path = autostart_dir.join("ocvoice-audio-router.desktop");
+
+        if desktop_path.exists() {
+            println!("  Auto-start: already configured");
+            return;
+        }
+
+        let _ = std::fs::create_dir_all(&autostart_dir);
+
+        let quoted = exe_path
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('`', "\\`")
+            .replace('$', "\\$");
+        let exec = quoted.replace('\\', "\\\\").replace('%', "%%");
+        let entry = format!(
+            "[Desktop Entry]\n\
+             Type=Application\n\
+             Name=OCvoice Audio Router\n\
+             Exec=\"{exec}\"\n\
+             Terminal=false\n\
+             X-GNOME-Autostart-enabled=true\n"
+        );
+
+        match std::fs::write(&desktop_path, entry) {
+            Ok(_) => println!("  Auto-start: installed (will start on login)"),
+            Err(e) => eprintln!("  Auto-start: failed to write desktop entry: {e}"),
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = exe_path;
         println!("  Auto-start: not supported on this platform");
@@ -804,7 +848,24 @@ fn run_tray(device_count: usize, tray_rx: std::sync::mpsc::Receiver<TrayUpdate>,
         height: 36,
         data: include_bytes!("../resources/macos/tray-icon.png").to_vec(),
     };
-    #[cfg(not(target_os = "macos"))]
+    // ksni unwraps its DBus session connection on its own thread, so without a
+    // desktop session (headless, SSH) it panics there. The HTTP server is the
+    // app; the tray is only a menu, so skip it rather than print a panic.
+    #[cfg(target_os = "linux")]
+    if ["DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "WAYLAND_DISPLAY"]
+        .iter()
+        .all(|var| std::env::var_os(var).is_none())
+    {
+        println!("  Tray: no desktop session, running without a tray icon");
+        loop {
+            std::thread::park();
+        }
+    }
+
+    // A freedesktop icon-theme name; every desktop theme ships "audio-card".
+    #[cfg(target_os = "linux")]
+    let icon = tray_item::IconSource::Resource("audio-card");
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     let icon = tray_item::IconSource::Resource("");
 
     let mut tray = TrayItem::new("OCvoice Audio Router", icon)
@@ -850,7 +911,7 @@ fn run_tray(device_count: usize, tray_rx: std::sync::mpsc::Receiver<TrayUpdate>,
         tray.inner_mut().display();
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
         let _ = tray.inner_mut().add_separator();
         let _ = tray.add_menu_item("Check for Update", move || {
@@ -866,14 +927,15 @@ fn run_tray(device_count: usize, tray_rx: std::sync::mpsc::Receiver<TrayUpdate>,
             std::process::exit(0);
         });
 
-        // On Windows, tray-item runs its own message loop thread.
-        // Park the main thread to keep the process alive.
+        // tray-item runs its own event thread here (the Win32 message loop,
+        // or the ksni DBus service on Linux). Park the main thread to keep
+        // the process alive.
         loop {
             std::thread::park();
         }
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = update_url_click; // suppress unused warning
         // No tray support — just park the main thread

@@ -95,13 +95,13 @@ you — commit it).
 ## 4. What CI runs, and what it does not
 
 `.github/workflows/release.yml` is the only workflow. Job graph:
-`version-gate` → `build` (three matrix slices) → `release` (tag refs only).
+`version-gate` → `build` (four matrix slices) → `release` (tag refs only).
 
-- `cargo test` runs on the arm64 macOS slice and the Windows slice. It is
+- `cargo test` runs on the arm64 macOS, Windows and Linux slices. It is
   skipped on the x64 macOS slice, which is cross-compiled on an arm64 runner and
   cannot execute its own test binaries.
-- `cargo clippy --all-targets -- -D warnings` runs on the arm64 macOS slice
-  only. The Windows-only `cfg` paths have never been linted; widening it belongs
+- `cargo clippy --all-targets -- -D warnings` runs on the arm64 macOS and
+  Linux slices. The Windows-only `cfg` paths have never been linted; widening it belongs
   in a change that first shows it green there.
 - **`cargo fmt --check` is deliberately not in CI, because the tree does not
   satisfy it.** Run it and you will see pre-existing drift in code unrelated to
@@ -121,10 +121,19 @@ The complete app includes sidecars:
   `ocvoice-restream-engine.exe` and `ffmpeg.exe`.
 - macOS: the `.app` carries the engine and `ffmpeg` in `Contents/Resources`,
   each nested-signed and notarized with the router.
+- Linux: the tarball contains `ocvoice-audio-router`,
+  `ocvoice-restream-engine` and `ffmpeg`. It is a tarball, not a zip, so the
+  executable bits survive. The slice builds on a pinned `ubuntu-22.04` runner
+  because the binary links against that glibc; moving the runner forward
+  raises the oldest distribution the download runs on.
+- The Linux tray uses tray-item's `ksni` feature (StatusNotifierItem over
+  DBus). Without a backend feature tray-item does not compile on Linux at all.
+  GNOME shows the icon only with the AppIndicator extension; the app runs
+  without it.
 
 Both sidecars are fetched at build time and gated fail-closed before anything is
 signed: the engine against a pinned tag and a pinned SHA-256 (the `ENGINE_*`
-block at the top of the workflow — the tag and all three digests are one unit
+block at the top of the workflow — the tag and all four digests are one unit
 and move together), and `ffmpeg` against two checks — it must not be
 `--enable-nonfree`, because a non-redistributable build cannot legally ship
 inside a GPL-3.0 app, and it must support `rtmps`, because the push target needs
