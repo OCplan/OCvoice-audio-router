@@ -22,10 +22,10 @@ env:
   # would change the signed payload without changing this file, and would
   # invalidate the digests below with no diff to review.
   ENGINE_VERSION: restream-engine-v0.1.1
-  ENGINE_SHA256_DARWIN_ARM64: TBD_DARWIN_ARM64
-  ENGINE_SHA256_DARWIN_X64: TBD_DARWIN_X64
-  ENGINE_SHA256_WINDOWS_X64: TBD_WINDOWS_X64
-  ENGINE_SHA256_LINUX_X64: TBD_LINUX_X64
+  ENGINE_SHA256_DARWIN_ARM64: 5537d7a85cae437d8634244e0ed7ee87caf6196467ba9425eb35ff77f3557d63
+  ENGINE_SHA256_DARWIN_X64: 2cc023cd98e3763b0ef81cbab2ed7be24d3c69c1896c4b831d1bac111561cefb
+  ENGINE_SHA256_WINDOWS_X64: aa6562d58e7831930be91dad75f4423d46ef9db859e9714015af5aa62c2674aa
+  ENGINE_SHA256_LINUX_X64: d64c1f6c6b2ccc7924c0b76608cb14fd98bfc1f349519caa212bf1616f1df0ef
 
 jobs:
   # Refuse to build anything whose version numbers disagree, before the matrix
